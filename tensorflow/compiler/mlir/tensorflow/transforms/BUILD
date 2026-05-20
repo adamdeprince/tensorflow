@@ -1040,6 +1040,8 @@ cc_library(
         "@xla//xla/mlir_hlo",
         "@xla//xla/stream_executor/tpu:c_api_conversions",
         "@xla//xla/stream_executor/tpu:tpu_api",
+        "@xla//xla/stream_executor/tpu:tpu_executor_api",
+        "@xla//xla/stream_executor/tpu:tpu_executor_c_api_hdrs",
     ],
 )
 
