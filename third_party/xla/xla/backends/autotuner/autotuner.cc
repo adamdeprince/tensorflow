@@ -351,6 +351,19 @@ tsl::Future<Autotuner::Config> Autotuner::GetConfig(HloInstruction* instr) {
     return default_config;
   }
 
+  if (autotune_config_.select_first_config) {
+    ASSIGN_OR_RETURN(std::vector<Config> supported_configs,
+                     GetSupportedConfigs(instr));
+    if (supported_configs.empty()) {
+      return absl::InternalError(
+          absl::StrCat("Autotuning failed for HLO: ", instr->ToString(),
+                       ". No supported configs found for this instruction."));
+    }
+    Config first_config = std::move(supported_configs[0]);
+    VLOG(1) << "Using first config: " << first_config.ToString();
+    return first_config;
+  }
+
   VLOG(1) << "Autotuning the HLO instruction to find best config.";
   return TuneBestConfig(instr).Map(
       [&, instr](Autotuner::Config best_config) -> absl::StatusOr<Config> {
