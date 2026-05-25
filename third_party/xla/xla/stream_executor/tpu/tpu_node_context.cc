@@ -16,9 +16,15 @@ limitations under the License.
 #include "xla/stream_executor/tpu/tpu_node_context.h"
 
 #include <memory>
+#include <utility>
 
+#include "absl/base/const_init.h"
+#include "absl/base/no_destructor.h"
+#include "absl/base/thread_annotations.h"
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
 #include "xla/service/backend.h"
 #include "xla/service/stream_pool.h"
 #include "xla/stream_executor/tpu/status_helper.h"
@@ -28,6 +34,12 @@ limitations under the License.
 
 namespace tensorflow {
 namespace tpu {
+
+namespace {
+absl::Mutex backend_mutex(absl::kConstInit);
+absl::NoDestructor<std::unique_ptr<xla::Backend>> backend_ptr
+    ABSL_GUARDED_BY(backend_mutex);
+}  // namespace
 
 /*static*/
 absl::StatusOr<std::unique_ptr<TpuNodeContext>> TpuNodeContext::Create(
@@ -51,6 +63,10 @@ TpuNodeContext::~TpuNodeContext() {
 
 /* static */
 absl::Status TpuNodeContext::CloseTpuHost() {
+  {
+    absl::MutexLock lock(&backend_mutex);
+    backend_ptr->reset();
+  }
   StatusHelper status;
   stream_executor::tpu::OpsApiFn()->TpuNodeContext_CloseTpuHostFn(
       status.c_status);
@@ -73,12 +89,15 @@ TpuPlatformInterface* TpuNodeContext::platform() {
 int TpuNodeContext::device_ordinal() const { return device_ordinal_; }
 
 xla::Backend* TpuNodeContext::backend() const {
-  static xla::Backend* backend =
-      xla::Backend::CreateBackend(
-          xla::BackendOptions().set_platform(platform()))
-          .value()
-          .release();
-  return backend;
+  absl::MutexLock lock(&backend_mutex);
+  if (*backend_ptr == nullptr) {
+    absl::StatusOr<std::unique_ptr<xla::Backend>> backend_or =
+        xla::Backend::CreateBackend(
+            xla::BackendOptions().set_platform(platform()));
+    CHECK_OK(backend_or.status());
+    *backend_ptr = std::move(backend_or.value());
+  }
+  return backend_ptr->get();
 }
 
 stream_executor::StreamExecutor* TpuNodeContext::stream_executor() const {
