@@ -151,11 +151,17 @@ TpuExecutor::GetAllocatorStats() {
 void TpuExecutor::DequeueOutfeed(int32_t outfeed_queue_index,
                                  absl::Span<uint8_t> bytes,
                                  StatusCallback done) {
-  StatusHelper status;
+  auto* done_cb = new StatusCallback(std::move(done));
+  SE_DequeueOutfeedCallback c_callback = [](TF_Status* c_status, void* ctx) {
+    auto* cb = static_cast<StatusCallback*>(ctx);
+    absl::Status status = StatusHelper::FromC(c_status);
+    ExecutorApiFn()->TpuStatus_FreeFn(c_status);
+    (*cb)(status);
+    delete cb;
+  };
   ExecutorApiFn()->TpuExecutor_DequeueOutfeedFn(executor_, outfeed_queue_index,
                                                 bytes.data(), bytes.size(),
-                                                status.c_status);
-  done(status.status());
+                                                c_callback, done_cb);
 }
 
 absl::Status TpuExecutor::EnqueueInfeed(int32_t infeed_queue_index,
